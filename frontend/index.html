@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RepoLens · GitHub 仓库分析</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #08111f;
+      --panel: #101c2f;
+      --panel-2: #15243a;
+      --text: #eef5ff;
+      --muted: #9db0c9;
+      --accent: #55d6be;
+      --accent-2: #7aa2ff;
+      --border: #263b58;
+      --danger: #ff8e8e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at 10% 0%, #17365a 0, transparent 35%),
+        radial-gradient(circle at 95% 10%, #123a38 0, transparent 30%),
+        var(--bg);
+      color: var(--text);
+    }
+    .shell { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 56px 0 80px; }
+    .eyebrow { color: var(--accent); font-weight: 750; letter-spacing: .12em; text-transform: uppercase; font-size: 12px; }
+    h1 { margin: 10px 0 12px; font-size: clamp(34px, 6vw, 68px); line-height: .98; letter-spacing: -.045em; }
+    .lead { max-width: 720px; color: var(--muted); font-size: 18px; line-height: 1.65; }
+    .search {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      margin: 32px 0 18px;
+      padding: 12px;
+      background: rgba(16, 28, 47, .86);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      backdrop-filter: blur(14px);
+    }
+    input {
+      width: 100%; border: 0; outline: 0; color: var(--text); background: transparent;
+      padding: 12px 14px; font-size: 16px;
+    }
+    button {
+      border: 0; border-radius: 12px; padding: 0 24px; min-height: 48px;
+      background: linear-gradient(135deg, var(--accent), #70a7ff); color: #06101c;
+      font-weight: 800; cursor: pointer;
+    }
+    button:disabled { opacity: .55; cursor: wait; }
+    .status { min-height: 26px; color: var(--muted); margin: 6px 4px 24px; }
+    .status.error { color: var(--danger); }
+    .hidden { display: none !important; }
+    .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+    .card { background: rgba(16, 28, 47, .92); border: 1px solid var(--border); border-radius: 18px; padding: 22px; }
+    .metric strong { display: block; font-size: 28px; margin-top: 8px; }
+    .label { color: var(--muted); font-size: 13px; }
+    .overview { grid-column: span 4; display: grid; grid-template-columns: 2fr 1fr; gap: 24px; }
+    .overview h2 { margin: 0 0 8px; font-size: 26px; }
+    .overview p { color: var(--muted); line-height: 1.6; }
+    .tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+    .tag { border: 1px solid var(--border); background: var(--panel-2); color: #cfe1f8; padding: 6px 9px; border-radius: 999px; font-size: 12px; }
+    .section { margin-top: 16px; }
+    .section h2 { margin: 0 0 16px; }
+    .files { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
+    .file { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; color: #dbe9fa; overflow: hidden; text-overflow: ellipsis; }
+    .issues { display: grid; gap: 10px; }
+    .issue { display: grid; grid-template-columns: 76px 1fr 120px; align-items: center; gap: 14px; padding: 14px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; }
+    .score { font-size: 22px; font-weight: 800; color: var(--accent); text-align: center; }
+    .issue a { color: var(--text); font-weight: 750; text-decoration: none; }
+    .issue a:hover { color: var(--accent); }
+    .reason { color: var(--muted); margin-top: 5px; font-size: 13px; }
+    .difficulty { text-align: right; color: var(--accent-2); font-weight: 700; }
+    .empty { color: var(--muted); padding: 12px 0; }
+    @media (max-width: 780px) {
+      .search, .overview { grid-template-columns: 1fr; }
+      .grid { grid-template-columns: repeat(2, 1fr); }
+      .overview { grid-column: span 2; }
+      .files { grid-template-columns: 1fr 1fr; }
+      .issue { grid-template-columns: 60px 1fr; }
+      .difficulty { grid-column: 2; text-align: left; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="eyebrow">Repository Intelligence</div>
+    <h1>RepoLens</h1>
+    <p class="lead">输入一个公开 GitHub 仓库，快速查看技术语言、根目录和适合新贡献者的开放 Issue。当前版本使用可解释的规则评分，不让模型凭空猜测。</p>
+
+    <form id="analyze-form" class="search">
+      <input id="repo-url" type="url" required value="https://github.com/open-webui/open-webui" aria-label="GitHub repository URL">
+      <button id="submit-button" type="submit">分析仓库</button>
+    </form>
+    <div id="status" class="status">服务已就绪，点击“分析仓库”开始。</div>
+
+    <section id="results" class="hidden">
+      <div class="grid">
+        <article class="card overview">
+          <div>
+            <div class="label">仓库</div>
+            <h2 id="repo-name"></h2>
+            <p id="repo-description"></p>
+            <div id="languages" class="tags"></div>
+          </div>
+          <div>
+            <div class="label">默认分支</div>
+            <strong id="default-branch"></strong>
+            <div class="label" style="margin-top:18px">许可证</div>
+            <strong id="license"></strong>
+          </div>
+        </article>
+        <article class="card metric"><span class="label">Stars</span><strong id="stars"></strong></article>
+        <article class="card metric"><span class="label">Forks</span><strong id="forks"></strong></article>
+        <article class="card metric"><span class="label">开放条目</span><strong id="open-issues"></strong></article>
+        <article class="card metric"><span class="label">API 余量</span><strong id="rate-limit"></strong></article>
+      </div>
+
+      <article class="card section">
+        <h2>根目录</h2>
+        <div id="files" class="files"></div>
+      </article>
+
+      <article class="card section">
+        <h2>推荐 Issue</h2>
+        <div id="issues" class="issues"></div>
+      </article>
+    </section>
+  </main>
+  <script>
+    const form = document.querySelector('#analyze-form');
+    const input = document.querySelector('#repo-url');
+    const button = document.querySelector('#submit-button');
+    const status = document.querySelector('#status');
+    const results = document.querySelector('#results');
+
+    const setText = (selector, value) => {
+      document.querySelector(selector).textContent = value ?? '—';
+    };
+
+    const clear = (element) => {
+      while (element.firstChild) element.removeChild(element.firstChild);
+    };
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      button.disabled = true;
+      status.className = 'status';
+      status.textContent = '正在读取 GitHub 仓库与开放 Issue…';
+      results.classList.add('hidden');
+
+      try {
+        const response = await fetch('/api/v1/repositories/analyze', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({repository_url: input.value.trim()})
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || '分析失败');
+
+        setText('#repo-name', payload.full_name);
+        setText('#repo-description', payload.description || '该仓库没有提供简介。');
+        setText('#default-branch', payload.default_branch);
+        setText('#license', payload.license || '未声明');
+        setText('#stars', payload.stars.toLocaleString());
+        setText('#forks', payload.forks.toLocaleString());
+        setText('#open-issues', payload.open_issue_count.toLocaleString());
+        setText('#rate-limit', payload.github_rate_limit_remaining ?? '—');
+
+        const languageBox = document.querySelector('#languages');
+        clear(languageBox);
+        const languageTotal = Object.values(payload.languages).reduce((sum, value) => sum + value, 0);
+        Object.entries(payload.languages).slice(0, 8).forEach(([name, bytes]) => {
+          const tag = document.createElement('span');
+          tag.className = 'tag';
+          const percent = languageTotal ? Math.round(bytes / languageTotal * 100) : 0;
+          tag.textContent = `${name} ${percent}%`;
+          languageBox.appendChild(tag);
+        });
+
+        const filesBox = document.querySelector('#files');
+        clear(filesBox);
+        payload.root_files.forEach((item) => {
+          const file = document.createElement('div');
+          file.className = 'file';
+          file.textContent = `${item.kind === 'dir' ? '📁' : '📄'} ${item.name}`;
+          filesBox.appendChild(file);
+        });
+
+        const issuesBox = document.querySelector('#issues');
+        clear(issuesBox);
+        if (!payload.issues.length) {
+          const empty = document.createElement('div');
+          empty.className = 'empty';
+          empty.textContent = '当前没有可展示的开放 Issue。';
+          issuesBox.appendChild(empty);
+        }
+        payload.issues.forEach((item) => {
+          const row = document.createElement('div');
+          row.className = 'issue';
+
+          const score = document.createElement('div');
+          score.className = 'score';
+          score.textContent = item.newcomer_score;
+
+          const body = document.createElement('div');
+          const link = document.createElement('a');
+          link.href = item.url;
+          link.target = '_blank';
+          link.rel = 'noreferrer';
+          link.textContent = `#${item.number} ${item.title}`;
+          const reason = document.createElement('div');
+          reason.className = 'reason';
+          reason.textContent = item.recommendation;
+          body.append(link, reason);
+
+          const difficulty = document.createElement('div');
+          difficulty.className = 'difficulty';
+          difficulty.textContent = item.difficulty;
+          row.append(score, body, difficulty);
+          issuesBox.appendChild(row);
+        });
+
+        status.textContent = `分析完成：找到 ${payload.issues.length} 个可展示 Issue。`;
+        results.classList.remove('hidden');
+      } catch (error) {
+        status.className = 'status error';
+        status.textContent = error.message;
+      } finally {
+        button.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
+

@@ -13,6 +13,7 @@ if (-not (Test-Path -LiteralPath $PidFile)) {
 $state = Get-Content -Raw -LiteralPath $PidFile | ConvertFrom-Json
 
 foreach ($entry in @(
+    @{ Name = "RepoLens backend"; Id = $state.backendPid },
     @{ Name = "Open WebUI"; Id = $state.openWebuiPid },
     @{ Name = "Hermes"; Id = $state.hermesPid }
 )) {
@@ -27,4 +28,3 @@ foreach ($entry in @(
 
 Remove-Item -LiteralPath $PidFile -Force
 Write-Host "RepoLens managed services are stopped." -ForegroundColor Green
-
