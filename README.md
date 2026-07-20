@@ -1,11 +1,11 @@
 # RepoLens
 
 > 一个可验证、成本可观测的 GitHub Issue 分析实验项目。
-> An evidence-grounded and cost-observable GitHub Issue analysis experiment.
+> 用真实代码证据约束模型输出，用可复现数据记录性能、成本与失败边界。
 
 RepoLens 使用透明规则完成公开仓库概览、Issue 排序和候选文件检索，再通过本机 Hermes 调用 DeepSeek，为 Issue 生成带代码证据的结构化分析。
 
-## Project Conclusion
+## 项目结论
 
 最初假设是：开发者需要一个独立页面，帮助他们理解陌生仓库并为 GitHub Issue 生成修改建议。
 
@@ -18,126 +18,128 @@ RepoLens 因此在 v0.5 完成工程化收尾后停止扩展注册、多租户�
 - [简历写法、30 秒介绍与面试问答](docs/interview-guide.md)
 - [v0.5 评测报告](docs/evaluation-v0.5.md)
 
-## Current Status
+## 当前功能
 
-- Open WebUI runs locally at `http://127.0.0.1:3000`.
-- Hermes Agent exposes an OpenAI-compatible API at `http://127.0.0.1:8642/v1`.
-- Hermes uses the existing DeepSeek provider configuration.
-- The RepoLens dashboard runs at `http://127.0.0.1:8000`.
-- The working dashboard analyzes a public GitHub repository, its languages, root directory, and open issues.
-- Issue ranking and candidate files continue to use transparent heuristics rather than LLM guesses.
-- For each displayed Issue, RepoLens calls DeepSeek through the local Hermes gateway to generate a Chinese explanation, implementation steps, test plan, and risk notes.
-- Repository metadata and Issue rankings render first. Only the highest-ranked Issue is analyzed automatically; all remaining Issues call AI only when expanded. Users can switch to fully on-demand mode for the lowest cost.
-- Successful AI results are cached in SQLite by repository, Issue number, GitHub update timestamp, and Prompt version (up to 256 entries), with an in-memory hot layer.
-- If Hermes is unavailable or returns invalid structured output, the repository analysis still succeeds with clearly marked rule-based fallback guidance.
-- Issue guidance uses Hermes as a tool-free text inference request (`tool_choice: none`, no tools, low reasoning, 700-token output limit). A v0.5 real-Issue check on 2026-07-20 completed in 26.03 seconds with 19,711 provider-reported tokens and an estimated ¥0.021249 cost; an immediate persistent-cache repeat took 0.057 seconds with no new model charge.
-- Candidate source files are fetched read-only from GitHub, reduced to bounded line-numbered snippets, and exposed as evidence IDs. Issue analysis runs as a background job with SSE progress events.
-- When Hermes forwards token usage, the UI shows input, output, total tokens, cache breakdown, and an estimated CNY cost.
+- Open WebUI 本地地址为 `http://127.0.0.1:3000`。
+- Hermes Agent 在 `http://127.0.0.1:8642/v1` 提供兼容 OpenAI 的接口，并复用已有 DeepSeek Provider 配置。
+- RepoLens 控制台运行在 `http://127.0.0.1:8000`。
+- 控制台可以分析公开 GitHub 仓库的基本信息、语言、根目录和开放 Issue。
+- Issue 排名和候选文件使用透明启发式规则，不由大模型凭空猜测。
+- RepoLens 通过本机 Hermes 网关调用 DeepSeek，为 Issue 生成中文问题解释、实施步骤、测试方案和风险提示。
+- 仓库元数据与 Issue 排名优先展示；默认只自动分析排名最高的一条，其余 Issue 展开时才调用 AI，也可切换为全部按需模式。
+- 成功结果按照仓库、Issue 编号、GitHub 更新时间和 Prompt 版本写入 SQLite，最多保留 256 条，并使用内存热缓存加速读取。
+- Hermes 不可用或返回无效结构时，仓库基础分析仍能成功，并明确显示规则降级结果。
+- Issue 分析使用禁用工具的纯文本推理请求：`tool_choice: none`、`tools: []`、低推理强度、700 Token 输出限制。
+- 2026-07-20 的 v0.5 真实 Issue 验证耗时 26.03 秒，Provider 报告总计 19,711 Token，按当时配置估算为 ¥0.021249；相同请求通过持久缓存再次读取只需 0.057 秒，没有新增模型费用。
+- 候选源码以只读方式从 GitHub 获取，裁剪成有长度边界且带行号的片段，并分配证据 ID。
+- Issue 分析在后台执行，前端通过 SSE 展示进度。
+- Hermes 返回 Token 用量后，界面会显示输入、输出、缓存命中、总 Token 和人民币成本估算。
 
-## Local Services
+## 本地服务
 
-The current Windows launcher expects the project Python environment at `.conda`, Hermes Agent and its `config.yaml` under `E:\hermes_root\hermes`, and an existing DeepSeek provider configured in Hermes. Node.js is only needed for the optional frontend syntax check.
+Windows 启动脚本默认要求项目 Python 环境位于 `.conda`，Hermes Agent 及其 `config.yaml` 位于 `E:\hermes_root\hermes`，并且 Hermes 中已经配置可用的 DeepSeek Provider。Node.js 只用于可选的前端语法检查。
 
-The launcher reads the Hermes gateway key from the external Hermes configuration and passes it to child processes without copying it into tracked project files. Start all local services with:
+启动脚本从外部 Hermes 配置读取网关密钥，并通过子进程环境传递，不会把密钥复制到受 Git 管理的项目文件中。启动全部本地服务：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\start-repolens.ps1
 ```
 
-Use `-NoBrowser` when a browser window is not wanted. Stop services launched by the script with:
+不希望自动打开浏览器时使用 `-NoBrowser`。停止脚本启动的服务：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\stop-repolens.ps1
 ```
 
-Runtime logs and PID metadata are written to `.runtime/` and are ignored by Git.
+运行日志和 PID 元数据写入 `.runtime/`，该目录已被 Git 忽略。
 
-For a reproducible backend container, copy `.env.example` to `.env`, set `HERMES_API_KEY`, ensure the host Hermes gateway is running, then use:
+需要通过容器复现后端时，将 `.env.example` 复制为 `.env`，设置 `HERMES_API_KEY`，确认宿主机 Hermes 网关正在运行，然后执行：
 
 ```powershell
 docker compose up --build
 ```
 
-The Compose service persists SQLite data in the `repolens-data` volume and reaches the host Hermes gateway through `host.docker.internal`.
+Compose 服务把 SQLite 数据持久化到 `repolens-data` 数据卷，并通过 `host.docker.internal` 访问宿主机 Hermes 网关。
 
-## Usage
+## 使用方式
 
-Open `http://127.0.0.1:8000`, enter a public repository URL, and select **Analyze repository**. Authentication is optional for early local testing. Set `GITHUB_TOKEN` in the process environment later if the anonymous GitHub API rate limit becomes restrictive.
+打开 `http://127.0.0.1:8000`，输入公开仓库 URL，然后点击“分析仓库”。本地初期测试不要求 GitHub 身份认证；如果匿名 GitHub API 限额不足，可以通过进程环境变量设置 `GITHUB_TOKEN`。
 
-Repository metadata and ranked Issues appear before AI guidance. Only the highest-ranked Issue is prefetched by default; expand another Issue to request its analysis, or choose fully on-demand mode. Hermes configuration uses `HERMES_API_BASE` (default `http://127.0.0.1:8642/v1`), `HERMES_MODEL` (default `hermes-agent`), and `HERMES_API_KEY` (required for AI analysis).
+仓库元数据和 Issue 排名会先于 AI 建议显示。默认只预先分析排名最高的一条 Issue；展开其他 Issue 时才请求分析，也可以选择全部按需模式。Hermes 使用 `HERMES_API_BASE`（默认 `http://127.0.0.1:8642/v1`）、`HERMES_MODEL`（默认 `hermes-agent`）和 `HERMES_API_KEY`（AI 分析必需）进行配置。
 
-## API Behavior
+## API 行为
 
-- `POST /api/v1/repositories/analyze` validates a public GitHub URL and returns repository metadata, languages, root entries, ranked Issues, candidate files, and rule-based implementation steps.
-- `POST /api/v1/issues/analyze` remains as a synchronous compatibility endpoint.
-- `POST /api/v1/issues/analyze/jobs` starts or reuses a background analysis; its status and SSE stream are available below `/api/v1/issues/analyze/jobs/{id}`.
-- Successful Hermes results are cached persistently. Fallback results are not cached, and concurrent requests for the same cache key share one active computation.
-- Cache capacity is 256 entries with least-recently-used eviction. A Prompt-version component prevents incompatible old output from being reused.
-- Hermes requests are limited to three concurrent calls and time out after 60 seconds.
+- `POST /api/v1/repositories/analyze` 校验公开 GitHub URL，返回仓库元数据、语言、根目录条目、Issue 排名、候选文件和规则生成的实施步骤。
+- `POST /api/v1/issues/analyze` 保留为同步兼容接口。
+- `POST /api/v1/issues/analyze/jobs` 创建或复用后台分析任务；任务状态和 SSE 流位于 `/api/v1/issues/analyze/jobs/{id}` 下。
+- Hermes 成功结果会持久化缓存，降级结果不会缓存；相同缓存键的并发请求共享同一次计算。
+- 缓存容量为 256 条，使用最近最少使用策略淘汰；Prompt 版本用于防止复用不兼容的历史输出。
+- Hermes 最多同时处理 3 个请求，单次请求 60 秒超时。
 
-## Token Cost and Savings
+## Token 成本与节省策略
 
-`max_tokens=700` limits generated output; it is not the amount billed. Actual billing uses input and output tokens returned in the provider `usage` object. RepoLens applies this estimate:
+`max_tokens=700` 只限制生成输出，不等于账单 Token 总量。实际计费依据 Provider 在 `usage` 对象中返回的输入和输出 Token。RepoLens 使用以下公式估算：
 
 ```text
-cost CNY = cache-hit input / 1,000,000 × hit price
-         + cache-miss input / 1,000,000 × miss price
-         + output / 1,000,000 × output price
+人民币费用 = 缓存命中输入 / 1,000,000 × 命中单价
+           + 缓存未命中输入 / 1,000,000 × 未命中单价
+           + 输出 / 1,000,000 × 输出单价
 ```
 
-The default rates in `.env.example` follow the linked `deepseek-v4-flash` CNY pricing visible on 2026-07-20. Pricing and the model behind Hermes can change, so `DEEPSEEK_PRICING_MODEL` and all three rate variables must match the actual account configuration. See the [official DeepSeek pricing page](https://api-docs.deepseek.com/zh-cn/quick_start/pricing).
+`.env.example` 的默认价格采用 2026-07-20 可见的 `deepseek-v4-flash` 人民币价格。模型价格和 Hermes 背后的实际模型都可能变化，因此 `DEEPSEEK_PRICING_MODEL` 及三个费率变量必须与真实账号配置保持一致。价格以 [DeepSeek 官方定价页面](https://api-docs.deepseek.com/zh-cn/quick_start/pricing) 为准。
 
-RepoLens reduces paid usage by defaulting to on-demand analysis, persisting successful results, merging duplicate in-flight requests, limiting Issue bodies to 3,500 characters, limiting evidence to three files and 4,500 characters, disabling tool loops, using low reasoning, and capping output at 700 tokens. A cache hit does not issue a new DeepSeek request.
+RepoLens 通过以下方式减少付费调用：默认按需分析、持久化成功结果、合并进行中的重复请求、把 Issue 正文限制为 3,500 字符、把证据限制为 3 个文件和 4,500 字符、禁用工具循环、使用低推理强度，并把请求输出限制为 700 Token。缓存命中不会再次请求 DeepSeek。
 
-## Architecture
+## 系统架构
 
 ```mermaid
 flowchart LR
-    UI["RepoLens Web UI"] --> API["FastAPI"]
+    UI["RepoLens 网页界面"] --> API["FastAPI"]
     API --> GH["GitHub REST API"]
-    GH --> RANK["Issue ranking and evidence"]
-    RANK --> JOB["Async job and SSE"]
-    JOB --> CACHE{"Memory / SQLite cache"}
-    CACHE -- "miss" --> HERMES["Hermes API"]
+    GH --> RANK["Issue 排名与代码证据"]
+    RANK --> JOB["异步任务与 SSE"]
+    JOB --> CACHE{"内存 / SQLite 缓存"}
+    CACHE -- "未命中" --> HERMES["Hermes API"]
     HERMES --> DS["DeepSeek"]
-    DS --> VALIDATE["JSON and evidence validation"]
-    CACHE -- "hit" --> RESULT["Structured result"]
+    DS --> VALIDATE["JSON 与证据校验"]
+    CACHE -- "命中" --> RESULT["结构化结果"]
     VALIDATE --> RESULT
     RESULT --> UI
 ```
 
-See [the architecture document](docs/architecture.md) for the request sequence, cache key, trust boundaries, and failure matrix.
+请求时序、缓存键、信任边界和失败矩阵详见 [系统架构说明](docs/architecture.md)。
 
-## Verification
+## 测试与验证
 
-Run the backend suite from the repository root:
+在仓库根目录运行后端测试：
 
 ```powershell
 .\.conda\python.exe -m unittest discover -s backend/tests -v
 ```
 
-The v0.5 suite contains 34 tests covering URL validation, ranking heuristics, evidence extraction, path traversal rejection, persistent caching, LRU eviction, token-cost calculation, the one-auto-Issue budget policy, asynchronous jobs, SSE, fallback behavior, malformed Hermes responses, timeouts, prompt-injection isolation, request concurrency, and the repository-to-Issue API workflow.
+v0.5 共包含 34 项测试，覆盖 URL 校验、排名启发式、证据提取、路径穿越拒绝、持久化缓存、LRU 淘汰、Token 成本计算、只自动分析一条 Issue 的预算策略、异步任务、SSE、降级行为、Hermes 异常响应、超时、提示词注入隔离、请求并发和仓库到 Issue 的完整 API 流程。
 
-Python syntax can be checked without writing bytecode, and the frontend's inline script can be compiled by Node.js. The v0.4 closeout also requires `git diff --check` and `git status` review.
+Python 语法检查不需要写入字节码，前端内联脚本可以通过 Node.js 编译检查。版本收尾还要求执行 `git diff --check` 并复查 `git status`。
 
-The fixed heuristic evaluation currently contains five cases and reports 100% Top-1 accuracy and 100% Top-3 recall. This is a small regression set, not a general accuracy claim; methodology and limitations are recorded in `docs/evaluation-v0.5.md`.
+固定启发式评测目前包含 5 个案例，结果为 Top-1 命中率 100%、Top-3 召回率 100%。这只是一个小型回归集，不代表通用准确率；方法和限制记录在 [v0.5 评测报告](docs/evaluation-v0.5.md) 中。
 
-## Known Limitations
+## 已知限制
 
-- AI latency depends on the local Hermes queue and configured DeepSeek model; the measured request still took about 30 seconds.
-- Background jobs are process-local; restarting the backend loses active job state, but completed SQLite-cached analysis remains available.
-- Candidate files still use path and Issue-keyword heuristics. Evidence snippets improve verifiability but do not provide full semantic repository understanding.
-- Only public `github.com` repositories are supported; private repositories and GitHub Enterprise are not supported.
-- The launcher contains machine-specific Windows paths and is not yet a portable installer.
-- The current evaluation corpus is too small for a production-quality accuracy claim, and live model quality is not evaluated in CI.
+- AI 延迟取决于本地 Hermes 队列和已配置的 DeepSeek 模型，实测请求仍需要约 30 秒。
+- 后台任务状态保存在当前进程中，重启后端会丢失活动任务；已经写入 SQLite 的分析结果仍可使用。
+- 候选文件仍依赖路径和 Issue 关键词启发式。证据片段提高了可验证性，但不等于完整的语义仓库理解。
+- 只支持公开 `github.com` 仓库，不支持私有仓库和 GitHub Enterprise。
+- 启动脚本包含本机特定的 Windows 路径，还不是可移植安装程序。
+- 当前评测集太小，不能作为生产级准确率结论；CI 也不会调用付费模型评测实时生成质量。
+- 项目没有证明独立 Issue 分析页面优于直接使用 Coding Agent，因此不继续扩展为 SaaS。
 
-## Project Status
+## 版本状态
 
-1. v0.3: public repository analysis, Issue ranking, and candidate files. **Complete**
-2. v0.4: structured Hermes guidance, tool disabling, safe fallback, and bounded caching. **Complete**
-3. v0.5: line-level evidence, token/cost telemetry, persistent caching, background jobs, SSE, CI, fixed regression cases, and Docker deployment. **Complete**
-4. Current: maintenance state. Registration, multi-tenancy, private-repository support, and autonomous code editing are intentionally not planned because the independent Issue-analysis product hypothesis was not validated.
+1. v0.3：公开仓库分析、Issue 排名和候选文件。**已完成**
+2. v0.4：结构化 Hermes 建议、禁用工具、安全降级和有界缓存。**已完成**
+3. v0.5：行级证据、Token/成本遥测、持久化缓存、后台任务、SSE、CI、固定回归案例和 Docker 部署。**已完成**
+4. 当前：进入维护状态。由于独立 Issue 分析产品假设没有得到验证，项目不再规划注册、多租户、私有仓库支持和自主代码修改。
 
-## Security
+## 安全说明
 
-Secrets remain in the existing Hermes configuration and are never copied into this repository. `.webui_secret_key`, `.env` files, key material, local databases, caches, and runtime logs are ignored and must never be committed. Model output and GitHub content are treated as untrusted input; Issue text is placed only in the user message, tools are disabled, and failure logs exclude API keys and full Issue bodies.
+密钥保留在现有 Hermes 配置中，不会复制到本仓库。`.webui_secret_key`、`.env` 文件、密钥材料、本地数据库、缓存和运行日志均被忽略，禁止提交。模型输出和 GitHub 内容全部按不可信输入处理；Issue 文本只放在用户消息中，工具调用被禁用，失败日志不记录 API Key 和完整 Issue 正文。
