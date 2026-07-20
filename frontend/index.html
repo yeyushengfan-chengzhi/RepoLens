@@ -1,0 +1,545 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RepoLens · GitHub 仓库分析</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #08111f;
+      --panel: #101c2f;
+      --panel-2: #15243a;
+      --text: #eef5ff;
+      --muted: #9db0c9;
+      --accent: #55d6be;
+      --accent-2: #7aa2ff;
+      --border: #263b58;
+      --danger: #ff8e8e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at 10% 0%, #17365a 0, transparent 35%),
+        radial-gradient(circle at 95% 10%, #123a38 0, transparent 30%),
+        var(--bg);
+      color: var(--text);
+    }
+    .shell { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 56px 0 80px; }
+    .eyebrow { color: var(--accent); font-weight: 750; letter-spacing: .12em; text-transform: uppercase; font-size: 12px; }
+    h1 { margin: 10px 0 12px; font-size: clamp(34px, 6vw, 68px); line-height: .98; letter-spacing: -.045em; }
+    .lead { max-width: 720px; color: var(--muted); font-size: 18px; line-height: 1.65; }
+    .search {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: 12px;
+      margin: 32px 0 18px;
+      padding: 12px;
+      background: rgba(16, 28, 47, .86);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      backdrop-filter: blur(14px);
+    }
+    input, select {
+      width: 100%; border: 0; outline: 0; color: var(--text); background: transparent;
+      padding: 12px 14px; font-size: 16px;
+    }
+    select { width: auto; border-left: 1px solid var(--border); color-scheme: dark; }
+    button {
+      border: 0; border-radius: 12px; padding: 0 24px; min-height: 48px;
+      background: linear-gradient(135deg, var(--accent), #70a7ff); color: #06101c;
+      font-weight: 800; cursor: pointer;
+    }
+    button:disabled { opacity: .55; cursor: wait; }
+    .status { min-height: 26px; color: var(--muted); margin: 6px 4px 24px; }
+    .status.error { color: var(--danger); }
+    .hidden { display: none !important; }
+    .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+    .card { background: rgba(16, 28, 47, .92); border: 1px solid var(--border); border-radius: 18px; padding: 22px; }
+    .metric strong { display: block; font-size: 28px; margin-top: 8px; }
+    .label { color: var(--muted); font-size: 13px; }
+    .overview { grid-column: span 4; display: grid; grid-template-columns: 2fr 1fr; gap: 24px; }
+    .overview h2 { margin: 0 0 8px; font-size: 26px; }
+    .overview p { color: var(--muted); line-height: 1.6; }
+    .tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+    .tag { border: 1px solid var(--border); background: var(--panel-2); color: #cfe1f8; padding: 6px 9px; border-radius: 999px; font-size: 12px; }
+    .section { margin-top: 16px; }
+    .section h2 { margin: 0 0 16px; }
+    .files { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
+    .file { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; color: #dbe9fa; overflow: hidden; text-overflow: ellipsis; }
+    .issues { display: grid; gap: 10px; }
+    .issue { display: grid; grid-template-columns: 76px 1fr 120px; align-items: center; gap: 14px; padding: 14px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; }
+    .score { font-size: 22px; font-weight: 800; color: var(--accent); text-align: center; }
+    .issue a { color: var(--text); font-weight: 750; text-decoration: none; }
+    .issue a:hover { color: var(--accent); }
+    .reason { color: var(--muted); margin-top: 5px; font-size: 13px; }
+    .difficulty { text-align: right; color: var(--accent-2); font-weight: 700; }
+    .action-plan { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
+    .action-plan summary { color: var(--accent); cursor: pointer; font-weight: 700; font-size: 13px; }
+    .action-plan h4 { margin: 14px 0 7px; font-size: 13px; color: #dbe9fa; }
+    .action-plan ul, .action-plan ol { margin: 0; padding-left: 20px; color: var(--muted); font-size: 13px; line-height: 1.65; }
+    .action-plan code { color: #cfe1f8; word-break: break-all; }
+    .candidate-reason { color: #7890ad; }
+    .ai-source { margin-left: 8px; color: var(--accent-2); font-size: 11px; font-weight: 700; }
+    .ai-explanation { color: var(--muted); font-size: 13px; line-height: 1.65; }
+    .ai-usage { margin-top: 8px; color: #89a2c0; font-size: 12px; }
+    .evidence-list { display: grid; gap: 8px; }
+    .evidence-item { border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
+    .evidence-item pre { margin: 6px 0 0; max-height: 220px; overflow: auto; white-space: pre-wrap; color: #aebfd4; font-size: 11px; }
+    .empty { color: var(--muted); padding: 12px 0; }
+    @media (max-width: 780px) {
+      .search, .overview { grid-template-columns: 1fr; }
+      .grid { grid-template-columns: repeat(2, 1fr); }
+      .overview { grid-column: span 2; }
+      .files { grid-template-columns: 1fr 1fr; }
+      .issue { grid-template-columns: 60px 1fr; }
+      .difficulty { grid-column: 2; text-align: left; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="eyebrow">Repository Intelligence</div>
+    <h1>RepoLens</h1>
+    <p class="lead">输入一个公开 GitHub 仓库，查看 Issue 排名、候选文件和带代码证据的 AI 分析。基础结果使用可解释规则生成，其余分析按需调用模型。</p>
+
+    <form id="analyze-form" class="search">
+      <input id="repo-url" type="url" required value="https://github.com/open-webui/open-webui" aria-label="GitHub repository URL">
+      <select id="ai-mode" aria-label="AI analysis mode">
+        <option value="top-1" selected>仅自动分析最重要 1 条</option>
+        <option value="on-demand">全部按需（最省钱）</option>
+      </select>
+      <button id="submit-button" type="submit">分析仓库</button>
+    </form>
+    <div id="status" class="status">服务已就绪，点击“分析仓库”开始。</div>
+
+    <section id="results" class="hidden">
+      <div class="grid">
+        <article class="card overview">
+          <div>
+            <div class="label">仓库</div>
+            <h2 id="repo-name"></h2>
+            <p id="repo-description"></p>
+            <div id="languages" class="tags"></div>
+          </div>
+          <div>
+            <div class="label">默认分支</div>
+            <strong id="default-branch"></strong>
+            <div class="label" style="margin-top:18px">许可证</div>
+            <strong id="license"></strong>
+          </div>
+        </article>
+        <article class="card metric"><span class="label">Stars</span><strong id="stars"></strong></article>
+        <article class="card metric"><span class="label">Forks</span><strong id="forks"></strong></article>
+        <article class="card metric"><span class="label">开放条目</span><strong id="open-issues"></strong></article>
+        <article class="card metric"><span class="label">API 余量</span><strong id="rate-limit"></strong></article>
+      </div>
+
+      <article class="card section">
+        <h2>根目录</h2>
+        <div id="files" class="files"></div>
+      </article>
+
+      <article class="card section">
+        <h2>推荐 Issue</h2>
+        <div id="issues" class="issues"></div>
+      </article>
+    </section>
+  </main>
+  <script>
+    const form = document.querySelector('#analyze-form');
+    const input = document.querySelector('#repo-url');
+    const aiMode = document.querySelector('#ai-mode');
+    const button = document.querySelector('#submit-button');
+    const status = document.querySelector('#status');
+    const results = document.querySelector('#results');
+    let analysisRun = 0;
+    let activeAiController = null;
+    const issueLoads = new Map();
+
+    const setText = (selector, value) => {
+      document.querySelector(selector).textContent = value ?? '—';
+    };
+
+    const clear = (element) => {
+      while (element.firstChild) element.removeChild(element.firstChild);
+    };
+
+    const replaceList = (element, values) => {
+      clear(element);
+      values.forEach((value) => {
+        const item = document.createElement('li');
+        item.textContent = value;
+        element.appendChild(item);
+      });
+    };
+
+    const applyAiAnalysis = (number, analysis) => {
+      const source = document.querySelector(`#ai-source-${number}`);
+      const explanation = document.querySelector(`#ai-explanation-${number}`);
+      const steps = document.querySelector(`#ai-steps-${number}`);
+      const tests = document.querySelector(`#ai-tests-${number}`);
+      const risks = document.querySelector(`#ai-risks-${number}`);
+      const usage = document.querySelector(`#ai-usage-${number}`);
+      const evidence = document.querySelector(`#ai-evidence-${number}`);
+      if (!source || !explanation || !steps || !tests || !risks) return;
+      source.textContent = analysis.source === 'hermes'
+        ? 'DeepSeek · Hermes'
+        : analysis.source === 'cache' ? '缓存结果' : '规则降级';
+      explanation.textContent = analysis.explanation;
+      replaceList(steps, analysis.implementation_steps);
+      replaceList(tests, analysis.test_plan);
+      replaceList(risks, analysis.risks);
+      if (usage) {
+        if (!analysis.usage) {
+          usage.textContent = analysis.source === 'cache'
+            ? '持久化缓存命中，本次未调用 DeepSeek。'
+            : 'Hermes 未返回 token usage，无法计算本次费用。';
+        } else if (analysis.source === 'cache') {
+          usage.textContent = `持久化缓存命中，本次费用 ¥0；原结果 ${analysis.usage.total_tokens.toLocaleString()} tokens。`;
+        } else {
+          const value = analysis.usage;
+          usage.textContent = `输入 ${value.prompt_tokens.toLocaleString()} + 输出 ${value.completion_tokens.toLocaleString()} = ${value.total_tokens.toLocaleString()} tokens；估算 ¥${value.estimated_cost_cny.toFixed(6)}（${value.pricing_model} 单价）。`;
+        }
+      }
+      if (evidence) {
+        clear(evidence);
+        if (!analysis.evidence?.length) {
+          const empty = document.createElement('div');
+          empty.className = 'candidate-reason';
+          empty.textContent = '本次没有可引用的代码片段，结论需人工确认。';
+          evidence.appendChild(empty);
+        }
+        (analysis.evidence || []).forEach((item) => {
+          const box = document.createElement('div');
+          box.className = 'evidence-item';
+          const title = document.createElement('code');
+          title.textContent = `${item.id} · ${item.path}:${item.start_line}-${item.end_line}`;
+          const excerpt = document.createElement('pre');
+          excerpt.textContent = item.excerpt;
+          box.append(title, excerpt);
+          evidence.appendChild(box);
+        });
+      }
+    };
+
+    const stageLabels = {
+      queued: '已排队',
+      checking_cache: '正在检查缓存',
+      cache_hit: '缓存命中',
+      fetching_evidence: '正在读取代码证据',
+      calling_hermes: '正在调用 DeepSeek',
+      completed: '分析完成',
+      degraded: '模型不可用，已安全降级',
+      failed: '分析失败'
+    };
+
+    const waitForJob = (jobId, item, runId, signal) => new Promise((resolve, reject) => {
+      const events = new EventSource(`/api/v1/issues/analyze/jobs/${jobId}/events`);
+      const close = () => events.close();
+      const abort = () => {
+        close();
+        reject(new DOMException('Aborted', 'AbortError'));
+      };
+      signal.addEventListener('abort', abort, {once: true});
+      events.onmessage = (event) => {
+        const job = JSON.parse(event.data);
+        const source = document.querySelector(`#ai-source-${item.number}`);
+        if (source && runId === analysisRun) {
+          source.textContent = stageLabels[job.stage] || job.stage;
+        }
+        if (job.state === 'completed' || job.state === 'failed') {
+          close();
+          signal.removeEventListener('abort', abort);
+          if (job.result) resolve(job.result);
+          else reject(new Error(job.error || 'AI 分析失败'));
+        }
+      };
+      events.onerror = () => {
+        close();
+        signal.removeEventListener('abort', abort);
+        reject(new Error('AI 进度连接中断，请重试'));
+      };
+    });
+
+    const loadIssueAnalysis = async (payload, item, runId, signal) => {
+      const loadKey = `${runId}:${item.number}`;
+      if (issueLoads.has(loadKey)) return issueLoads.get(loadKey);
+
+      const request = (async () => {
+        const source = document.querySelector(`#ai-source-${item.number}`);
+        if (source) source.textContent = '正在分析';
+        try {
+          const response = await fetch('/api/v1/issues/analyze/jobs', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            signal,
+            body: JSON.stringify({
+              repository: payload.full_name,
+              number: item.number,
+              title: item.title,
+              body: item.body,
+              updated_at: item.updated_at,
+              labels: item.labels,
+              candidate_paths: item.candidate_files.map((file) => file.path),
+              suggested_steps: item.suggested_steps
+            })
+          });
+          const job = await response.json();
+          if (!response.ok) throw new Error(job.detail || 'AI 分析失败');
+          const analysis = await waitForJob(job.id, item, runId, signal);
+          if (runId === analysisRun) applyAiAnalysis(item.number, analysis);
+          return analysis;
+        } catch (error) {
+          if (error.name !== 'AbortError' && runId === analysisRun) {
+            if (source) source.textContent = '生成失败，收起后重试';
+            issueLoads.delete(loadKey);
+          }
+          throw error;
+        }
+      })();
+      issueLoads.set(loadKey, request);
+      return request;
+    };
+
+    const prefetchTopIssue = async (payload, runId, signal) => {
+      const topIssues = payload.issues.slice(0, 1);
+      let completed = 0;
+      let available = 0;
+      await Promise.all(topIssues.map(async (item) => {
+        try {
+          const analysis = await loadIssueAnalysis(payload, item, runId, signal);
+          if (analysis.source === 'hermes' || analysis.source === 'cache') available += 1;
+        } catch (error) {
+          if (error.name === 'AbortError') return;
+        } finally {
+          if (runId === analysisRun && !signal.aborted) {
+            completed += 1;
+            status.textContent = `仓库已显示；优先 AI 分析 ${completed}/${topIssues.length}。`;
+          }
+        }
+      }));
+      if (runId === analysisRun && !signal.aborted) {
+        status.textContent = `仓库分析完成：优先准备 ${available}/${topIssues.length} 条，其余 Issue 展开时生成。`;
+      }
+    };
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const currentRun = ++analysisRun;
+      if (activeAiController) activeAiController.abort();
+      activeAiController = new AbortController();
+      issueLoads.clear();
+      button.disabled = true;
+      status.className = 'status';
+      status.textContent = '正在读取 GitHub 仓库与开放 Issue…';
+      results.classList.add('hidden');
+
+      try {
+        const response = await fetch('/api/v1/repositories/analyze', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({repository_url: input.value.trim()})
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || '分析失败');
+
+        setText('#repo-name', payload.full_name);
+        setText('#repo-description', payload.description || '该仓库没有提供简介。');
+        setText('#default-branch', payload.default_branch);
+        setText('#license', payload.license || '未声明');
+        setText('#stars', payload.stars.toLocaleString());
+        setText('#forks', payload.forks.toLocaleString());
+        setText('#open-issues', payload.open_issue_count.toLocaleString());
+        setText('#rate-limit', payload.github_rate_limit_remaining ?? '—');
+
+        const languageBox = document.querySelector('#languages');
+        clear(languageBox);
+        const languageTotal = Object.values(payload.languages).reduce((sum, value) => sum + value, 0);
+        Object.entries(payload.languages).slice(0, 8).forEach(([name, bytes]) => {
+          const tag = document.createElement('span');
+          tag.className = 'tag';
+          const percent = languageTotal ? Math.round(bytes / languageTotal * 100) : 0;
+          tag.textContent = `${name} ${percent}%`;
+          languageBox.appendChild(tag);
+        });
+
+        const filesBox = document.querySelector('#files');
+        clear(filesBox);
+        payload.root_files.forEach((item) => {
+          const file = document.createElement('div');
+          file.className = 'file';
+          file.textContent = `${item.kind === 'dir' ? '📁' : '📄'} ${item.name}`;
+          filesBox.appendChild(file);
+        });
+
+        const issuesBox = document.querySelector('#issues');
+        clear(issuesBox);
+        if (!payload.issues.length) {
+          const empty = document.createElement('div');
+          empty.className = 'empty';
+          empty.textContent = '当前没有可展示的开放 Issue。';
+          issuesBox.appendChild(empty);
+        }
+        payload.issues.forEach((item, index) => {
+          const row = document.createElement('div');
+          row.className = 'issue';
+
+          const score = document.createElement('div');
+          score.className = 'score';
+          score.textContent = item.newcomer_score;
+
+          const body = document.createElement('div');
+          const link = document.createElement('a');
+          link.href = item.url;
+          link.target = '_blank';
+          link.rel = 'noreferrer';
+          link.textContent = `#${item.number} ${item.title}`;
+          const reason = document.createElement('div');
+          reason.className = 'reason';
+          reason.textContent = item.recommendation;
+          const plan = document.createElement('details');
+          plan.className = 'action-plan';
+          const planTitle = document.createElement('summary');
+          planTitle.textContent = '查看候选文件与行动步骤';
+          plan.appendChild(planTitle);
+          plan.addEventListener('toggle', () => {
+            if (plan.open && currentRun === analysisRun) {
+              void loadIssueAnalysis(
+                payload,
+                item,
+                currentRun,
+                activeAiController.signal
+              ).catch(() => {});
+            }
+          });
+
+          const explanationTitle = document.createElement('h4');
+          explanationTitle.textContent = '中文问题解释';
+          const source = document.createElement('span');
+          source.className = 'ai-source';
+          source.id = `ai-source-${item.number}`;
+          source.textContent = item.ai_analysis.source === 'pending' ? '等待生成' : '规则降级';
+          explanationTitle.appendChild(source);
+          plan.appendChild(explanationTitle);
+          const explanation = document.createElement('div');
+          explanation.className = 'ai-explanation';
+          explanation.id = `ai-explanation-${item.number}`;
+          explanation.textContent = item.ai_analysis.explanation;
+          plan.appendChild(explanation);
+          const usage = document.createElement('div');
+          usage.className = 'ai-usage';
+          usage.id = `ai-usage-${item.number}`;
+          usage.textContent = '尚未调用模型，不产生 DeepSeek 费用。';
+          plan.appendChild(usage);
+
+          const evidenceTitle = document.createElement('h4');
+          evidenceTitle.textContent = '代码证据';
+          plan.appendChild(evidenceTitle);
+          const evidenceList = document.createElement('div');
+          evidenceList.className = 'evidence-list';
+          evidenceList.id = `ai-evidence-${item.number}`;
+          const evidencePending = document.createElement('div');
+          evidencePending.className = 'candidate-reason';
+          evidencePending.textContent = '分析后显示被模型引用的文件片段与行号。';
+          evidenceList.appendChild(evidencePending);
+          plan.appendChild(evidenceList);
+
+          const filesTitle = document.createElement('h4');
+          filesTitle.textContent = '可能要改的文件';
+          plan.appendChild(filesTitle);
+          const candidateList = document.createElement('ul');
+          if (!item.candidate_files.length) {
+            const candidate = document.createElement('li');
+            candidate.textContent = '暂未匹配到文件，请按标题关键词搜索仓库。';
+            candidateList.appendChild(candidate);
+          }
+          item.candidate_files.forEach((candidateFile) => {
+            const candidate = document.createElement('li');
+            const path = document.createElement('code');
+            path.textContent = candidateFile.path;
+            const candidateReason = document.createElement('span');
+            candidateReason.className = 'candidate-reason';
+            candidateReason.textContent = ` — ${candidateFile.reason}`;
+            candidate.append(path, candidateReason);
+            candidateList.appendChild(candidate);
+          });
+          plan.appendChild(candidateList);
+
+          const stepsTitle = document.createElement('h4');
+          stepsTitle.textContent = '建议怎么开始';
+          plan.appendChild(stepsTitle);
+          const stepList = document.createElement('ol');
+          item.suggested_steps.forEach((stepText) => {
+            const step = document.createElement('li');
+            step.textContent = stepText;
+            stepList.appendChild(step);
+          });
+          plan.appendChild(stepList);
+
+          const aiStepsTitle = document.createElement('h4');
+          aiStepsTitle.textContent = '实施步骤';
+          plan.appendChild(aiStepsTitle);
+          const aiStepList = document.createElement('ol');
+          aiStepList.id = `ai-steps-${item.number}`;
+          item.ai_analysis.implementation_steps.forEach((stepText) => {
+            const step = document.createElement('li');
+            step.textContent = stepText;
+            aiStepList.appendChild(step);
+          });
+          plan.appendChild(aiStepList);
+
+          const testTitle = document.createElement('h4');
+          testTitle.textContent = '测试方案';
+          plan.appendChild(testTitle);
+          const testList = document.createElement('ul');
+          testList.id = `ai-tests-${item.number}`;
+          item.ai_analysis.test_plan.forEach((testText) => {
+            const test = document.createElement('li');
+            test.textContent = testText;
+            testList.appendChild(test);
+          });
+          plan.appendChild(testList);
+
+          const riskTitle = document.createElement('h4');
+          riskTitle.textContent = '风险提示';
+          plan.appendChild(riskTitle);
+          const riskList = document.createElement('ul');
+          riskList.id = `ai-risks-${item.number}`;
+          item.ai_analysis.risks.forEach((riskText) => {
+            const risk = document.createElement('li');
+            risk.textContent = riskText;
+            riskList.appendChild(risk);
+          });
+          plan.appendChild(riskList);
+          body.append(link, reason, plan);
+
+          const difficulty = document.createElement('div');
+          difficulty.className = 'difficulty';
+          difficulty.textContent = item.difficulty;
+          row.append(score, body, difficulty);
+          issuesBox.appendChild(row);
+        });
+
+        const autoAnalyze = aiMode.value === 'top-1';
+        status.textContent = autoAnalyze
+          ? `仓库分析完成：已显示 ${payload.issues.length} 条 Issue，正在生成最重要的 1 条…`
+          : `仓库分析完成：已显示 ${payload.issues.length} 条 Issue；展开 Issue 时才调用 AI，避免无效费用。`;
+        results.classList.remove('hidden');
+        if (autoAnalyze) {
+          void prefetchTopIssue(payload, currentRun, activeAiController.signal);
+        }
+      } catch (error) {
+        if (currentRun !== analysisRun) return;
+        status.className = 'status error';
+        status.textContent = error.message;
+      } finally {
+        button.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

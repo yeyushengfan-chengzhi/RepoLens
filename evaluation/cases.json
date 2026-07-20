@@ -1,0 +1,72 @@
+[
+  {
+    "name": "authentication regression",
+    "issue": {
+      "title": "Fix authentication login regression",
+      "body": "The auth service rejects a valid user.",
+      "labels": [{"name": "bug"}]
+    },
+    "tree": [
+      {"type": "blob", "path": "backend/app/auth/service.py"},
+      {"type": "blob", "path": "backend/tests/test_auth.py"},
+      {"type": "blob", "path": "frontend/theme.css"}
+    ],
+    "expected_paths": ["backend/app/auth/service.py", "backend/tests/test_auth.py"]
+  },
+  {
+    "name": "documentation update",
+    "issue": {
+      "title": "Update README documentation",
+      "body": "Clarify local setup instructions.",
+      "labels": [{"name": "documentation"}]
+    },
+    "tree": [
+      {"type": "blob", "path": "README.md"},
+      {"type": "blob", "path": "backend/app/main.py"},
+      {"type": "blob", "path": "frontend/index.html"}
+    ],
+    "expected_paths": ["README.md"]
+  },
+  {
+    "name": "Hermes JSON handling",
+    "issue": {
+      "title": "Hermes returns invalid JSON",
+      "body": "The model response should safely fall back when parsing fails.",
+      "labels": [{"name": "bug"}]
+    },
+    "tree": [
+      {"type": "blob", "path": "backend/app/hermes.py"},
+      {"type": "blob", "path": "backend/tests/test_hermes.py"},
+      {"type": "blob", "path": "backend/app/github.py"}
+    ],
+    "expected_paths": ["backend/app/hermes.py", "backend/tests/test_hermes.py"]
+  },
+  {
+    "name": "persistent storage",
+    "issue": {
+      "title": "Persist cache across restarts",
+      "body": "The storage layer should retain analysis results in SQLite.",
+      "labels": [{"name": "enhancement"}]
+    },
+    "tree": [
+      {"type": "blob", "path": "backend/app/storage.py"},
+      {"type": "blob", "path": "backend/app/main.py"},
+      {"type": "blob", "path": "frontend/index.html"}
+    ],
+    "expected_paths": ["backend/app/storage.py"]
+  },
+  {
+    "name": "GitHub candidate ranking",
+    "issue": {
+      "title": "Improve GitHub candidate file ranking",
+      "body": "Repository paths need more accurate ranking.",
+      "labels": [{"name": "enhancement"}]
+    },
+    "tree": [
+      {"type": "blob", "path": "backend/app/github.py"},
+      {"type": "blob", "path": "backend/app/hermes.py"},
+      {"type": "blob", "path": "frontend/index.html"}
+    ],
+    "expected_paths": ["backend/app/github.py"]
+  }
+]

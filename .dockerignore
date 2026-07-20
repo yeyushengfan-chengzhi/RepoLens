@@ -1,0 +1,13 @@
+.conda
+.git
+.github
+.pip-cache
+.runtime
+.webui_secret_key
+data
+logs
+__pycache__
+*.py[cod]
+.env
+.env.*
+!.env.example

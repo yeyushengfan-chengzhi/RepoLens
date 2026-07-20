@@ -10,7 +10,19 @@ $HermesRoot = "E:\hermes_root\hermes"
 $HermesExe = Join-Path $HermesRoot "hermes-agent\venv\Scripts\hermes.exe"
 $HermesConfig = Join-Path $HermesRoot "config.yaml"
 $OpenWebUIExe = Join-Path $ProjectRoot ".conda\Scripts\open-webui.exe"
+$PythonExe = Join-Path $ProjectRoot ".conda\python.exe"
 $PidFile = Join-Path $RuntimeDir "pids.json"
+
+# Some Windows/Conda shells expose both PATH and Path. PowerShell 5.1
+# Start-Process rejects that duplicate when it builds the child environment.
+$processEnvironment = [Environment]::GetEnvironmentVariables()
+$pathKeys = @($processEnvironment.Keys | Where-Object { $_ -ieq "path" })
+if ($pathKeys.Count -gt 1) {
+    $pathValue = $processEnvironment["Path"]
+    if (-not $pathValue) { $pathValue = $processEnvironment["PATH"] }
+    [Environment]::SetEnvironmentVariable("PATH", $null, "Process")
+    [Environment]::SetEnvironmentVariable("Path", $pathValue, "Process")
+}
 
 function Test-TcpPort {
     param([int]$Port)
@@ -37,7 +49,7 @@ function Wait-ForPort {
     throw "Timed out waiting for port $Port. Check logs in $RuntimeDir."
 }
 
-foreach ($required in @($HermesExe, $HermesConfig, $OpenWebUIExe)) {
+foreach ($required in @($HermesExe, $HermesConfig, $OpenWebUIExe, $PythonExe)) {
     if (-not (Test-Path -LiteralPath $required)) {
         throw "Required file not found: $required"
     }
@@ -62,6 +74,7 @@ $state = [ordered]@{
     startedAt = (Get-Date).ToString("o")
     hermesPid = $null
     openWebuiPid = $null
+    backendPid = $null
 }
 
 if (-not (Test-TcpPort -Port 8642)) {
@@ -93,12 +106,28 @@ if (-not (Test-TcpPort -Port 3000)) {
     Wait-ForPort -Port 3000 -TimeoutSeconds 180
 }
 
+if (-not (Test-TcpPort -Port 8000)) {
+    $env:HERMES_API_BASE = "http://127.0.0.1:8642/v1"
+    $env:HERMES_API_KEY = $hermesKey
+    $env:HERMES_MODEL = "hermes-agent"
+    $backendProcess = Start-Process `
+        -FilePath $PythonExe `
+        -ArgumentList @("-m", "uvicorn", "backend.app.main:app", "--host", "127.0.0.1", "--port", "8000") `
+        -WorkingDirectory $ProjectRoot `
+        -WindowStyle Hidden `
+        -RedirectStandardOutput (Join-Path $RuntimeDir "backend.out.log") `
+        -RedirectStandardError (Join-Path $RuntimeDir "backend.err.log") `
+        -PassThru
+    $state.backendPid = $backendProcess.Id
+    Wait-ForPort -Port 8000
+}
+
 $state | ConvertTo-Json | Set-Content -LiteralPath $PidFile -Encoding UTF8
 
-Write-Host "RepoLens services are ready: http://127.0.0.1:3000" -ForegroundColor Green
+Write-Host "RepoLens is ready: http://127.0.0.1:8000" -ForegroundColor Green
+Write-Host "Open WebUI: http://127.0.0.1:3000"
 Write-Host "Logs: $RuntimeDir"
 
 if (-not $NoBrowser) {
-    Start-Process "http://127.0.0.1:3000"
+    Start-Process "http://127.0.0.1:8000"
 }
-
