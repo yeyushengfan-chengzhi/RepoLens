@@ -9,10 +9,10 @@ htmlcov/
 .env
 .env.*
 !.env.example
+.webui_secret_key
 *.key
 *.pem
 data/
 logs/
 .idea/
 .vscode/
-

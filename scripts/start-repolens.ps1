@@ -107,6 +107,9 @@ if (-not (Test-TcpPort -Port 3000)) {
 }
 
 if (-not (Test-TcpPort -Port 8000)) {
+    $env:HERMES_API_BASE = "http://127.0.0.1:8642/v1"
+    $env:HERMES_API_KEY = $hermesKey
+    $env:HERMES_MODEL = "hermes-agent"
     $backendProcess = Start-Process `
         -FilePath $PythonExe `
         -ArgumentList @("-m", "uvicorn", "backend.app.main:app", "--host", "127.0.0.1", "--port", "8000") `

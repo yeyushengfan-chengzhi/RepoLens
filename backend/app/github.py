@@ -2,15 +2,56 @@ import asyncio
 import os
 import re
 from dataclasses import dataclass
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import httpx
 
-from .schemas import IssueSummary, RepositoryAnalysis, RepositoryFile
+from .hermes import pending_issue_analysis
+from .schemas import CandidateFile, IssueSummary, RepositoryAnalysis, RepositoryFile
 
 
 GITHUB_API_BASE = "https://api.github.com"
 REPOSITORY_PART = re.compile(r"^[A-Za-z0-9_.-]+$")
+WORD_PART = re.compile(r"[a-zA-Z][a-zA-Z0-9_-]{2,}")
+IGNORED_WORDS = {
+    "about",
+    "add",
+    "after",
+    "also",
+    "and",
+    "are",
+    "before",
+    "can",
+    "could",
+    "data",
+    "error",
+    "from",
+    "have",
+    "issue",
+    "into",
+    "open",
+    "please",
+    "read",
+    "repository",
+    "should",
+    "that",
+    "the",
+    "this",
+    "using",
+    "user",
+    "users",
+    "when",
+    "where",
+    "with",
+}
+IGNORED_PATH_PARTS = {
+    ".git",
+    ".github",
+    "build",
+    "dist",
+    "node_modules",
+    "vendor",
+}
 
 
 class GitHubApiError(RuntimeError):
@@ -84,6 +125,94 @@ def assess_issue(issue: dict) -> tuple[str, int, str]:
     return difficulty, score, recommendation
 
 
+def recommend_issue_files(issue: dict, tree: list[dict]) -> list[CandidateFile]:
+    """Rank repository files by transparent keyword and path heuristics."""
+    title = str(issue.get("title") or "")
+    body = str(issue.get("body") or "")
+    title_text = title.lower()
+    body_text = body[:4000].lower()
+    searchable_text = f"{title_text} {body_text}"
+    title_keywords = {
+        word.lower().replace("-", "_")
+        for word in WORD_PART.findall(title_text)
+        if word.lower() not in IGNORED_WORDS
+    }
+    body_keywords = {
+        word.lower().replace("-", "_")
+        for word in WORD_PART.findall(body_text)
+        if word.lower() not in IGNORED_WORDS and len(word) >= 4
+    } - title_keywords
+    labels = {
+        str(label.get("name", "")).strip().lower()
+        for label in issue.get("labels", [])
+    }
+    wants_docs = bool(labels.intersection({"documentation", "docs"})) or any(
+        word in title_text for word in ("document", "readme", "typo")
+    )
+    wants_tests = any(word in searchable_text for word in ("test", "regression", "bug"))
+
+    ranked: list[CandidateFile] = []
+    for item in tree:
+        if item.get("type") != "blob":
+            continue
+        path = str(item.get("path") or "")
+        if not path or len(path) > 240:
+            continue
+        lower_path = path.lower()
+        parts = set(re.split(r"[/._-]+", lower_path))
+        if parts.intersection(IGNORED_PATH_PARTS):
+            continue
+        if lower_path.endswith((".lock", ".min.js", ".map", ".svg", ".png", ".jpg")):
+            continue
+
+        title_matches = sorted(
+            keyword
+            for keyword in title_keywords
+            if keyword in parts or (len(keyword) >= 5 and keyword in lower_path)
+        )
+        body_matches = sorted(
+            keyword
+            for keyword in body_keywords
+            if keyword in parts or (len(keyword) >= 6 and keyword in lower_path)
+        )
+        score = sum(8 if keyword in parts else 4 for keyword in title_matches)
+        score += sum(4 if keyword in parts else 1 for keyword in body_matches)
+        reasons: list[str] = []
+        if title_matches:
+            reasons.append("路径命中标题关键词：" + "、".join(title_matches[:3]))
+        if body_matches:
+            reasons.append("路径命中正文关键词：" + "、".join(body_matches[:3]))
+        if wants_docs and (lower_path.startswith("docs/") or "readme" in lower_path):
+            score += 8
+            reasons.append("Issue 涉及文档")
+        if wants_tests and any(part in parts for part in ("test", "tests", "spec")):
+            score += 5
+            reasons.append("Issue 可能需要测试验证")
+
+        if score >= 4:
+            ranked.append(
+                CandidateFile(
+                    path=path,
+                    score=score,
+                    reason="；".join(reasons),
+                )
+            )
+
+    ranked.sort(key=lambda item: (-item.score, len(item.path), item.path))
+    return ranked[:5]
+
+
+def suggest_issue_steps(issue: dict, candidates: list[CandidateFile]) -> list[str]:
+    steps = ["先阅读 Issue 原文和讨论，确认复现条件与验收标准。"]
+    if candidates:
+        steps.append(f"从 {candidates[0].path} 开始定位相关逻辑。")
+    else:
+        steps.append("先用 Issue 标题中的关键词在仓库内搜索相关代码。")
+    steps.append("建立独立 feature/fix 分支，用最小改动完成修复或功能。")
+    steps.append("运行现有测试，并为本次改动补充一个可复现的测试。")
+    return steps
+
+
 class GitHubClient:
     def __init__(self, client: httpx.AsyncClient) -> None:
         self.client = client
@@ -127,15 +256,21 @@ async def analyze_repository(
     github = GitHubClient(client)
     base = f"/repos/{coordinates.owner}/{coordinates.name}"
 
-    repository, languages, contents, issues = await asyncio.gather(
-        github.get_json(base),
+    repository = await github.get_json(base)
+    default_branch = repository.get("default_branch", "main")
+    languages, contents, issues, tree_payload = await asyncio.gather(
         github.get_json(f"{base}/languages"),
         github.get_json(f"{base}/contents"),
         github.get_json(
             f"{base}/issues",
             params={"state": "open", "sort": "updated", "per_page": 30},
         ),
+        github.get_json(
+            f"{base}/git/trees/{quote(default_branch, safe='')}",
+            params={"recursive": "1"},
+        ),
     )
+    repository_tree = tree_payload.get("tree", [])
 
     root_files = [
         RepositoryFile(
@@ -147,15 +282,27 @@ async def analyze_repository(
         if item.get("name")
     ]
 
-    issue_summaries: list[IssueSummary] = []
+    ranked_issues: list[tuple[dict, str, int, str, list[CandidateFile], list[str]]] = []
     for issue in issues:
         if "pull_request" in issue:
             continue
         difficulty, score, recommendation = assess_issue(issue)
+        candidate_files = recommend_issue_files(issue, repository_tree)
+        suggested_steps = suggest_issue_steps(issue, candidate_files)
+        ranked_issues.append(
+            (issue, difficulty, score, recommendation, candidate_files, suggested_steps)
+        )
+
+    ranked_issues.sort(key=lambda item: item[2], reverse=True)
+    selected_issues = ranked_issues[:15]
+    issue_summaries: list[IssueSummary] = []
+    for item in selected_issues:
+        issue, difficulty, score, recommendation, candidate_files, suggested_steps = item
         issue_summaries.append(
             IssueSummary(
                 number=issue["number"],
                 title=issue["title"],
+                body=str(issue.get("body") or "")[:6000],
                 url=issue["html_url"],
                 labels=[label.get("name", "") for label in issue.get("labels", [])],
                 comments=issue.get("comments", 0),
@@ -163,10 +310,11 @@ async def analyze_repository(
                 difficulty=difficulty,
                 newcomer_score=score,
                 recommendation=recommendation,
+                candidate_files=candidate_files,
+                suggested_steps=suggested_steps,
+                ai_analysis=pending_issue_analysis(suggested_steps),
             )
         )
-
-    issue_summaries.sort(key=lambda item: item.newcomer_score, reverse=True)
     license_info = repository.get("license") or {}
 
     return RepositoryAnalysis(
@@ -175,13 +323,13 @@ async def analyze_repository(
         full_name=repository["full_name"],
         url=repository["html_url"],
         description=repository.get("description"),
-        default_branch=repository.get("default_branch", "main"),
+        default_branch=default_branch,
         stars=repository.get("stargazers_count", 0),
         forks=repository.get("forks_count", 0),
         open_issue_count=repository.get("open_issues_count", 0),
         license=license_info.get("spdx_id"),
         languages=languages,
         root_files=root_files,
-        issues=issue_summaries[:15],
+        issues=issue_summaries,
         github_rate_limit_remaining=github.rate_limit_remaining,
     )

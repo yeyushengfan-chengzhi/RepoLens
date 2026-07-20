@@ -1,0 +1,23 @@
+services:
+  repolens:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      HERMES_API_BASE: ${HERMES_API_BASE:-http://host.docker.internal:8642/v1}
+      HERMES_API_KEY: ${HERMES_API_KEY:?Set HERMES_API_KEY in your local .env}
+      HERMES_MODEL: ${HERMES_MODEL:-hermes-agent}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      REPOLENS_DB_PATH: /app/data/repolens.db
+      DEEPSEEK_PRICING_MODEL: ${DEEPSEEK_PRICING_MODEL:-deepseek-v4-flash}
+      DEEPSEEK_CACHE_HIT_CNY_PER_M: ${DEEPSEEK_CACHE_HIT_CNY_PER_M:-0.02}
+      DEEPSEEK_CACHE_MISS_CNY_PER_M: ${DEEPSEEK_CACHE_MISS_CNY_PER_M:-1}
+      DEEPSEEK_OUTPUT_CNY_PER_M: ${DEEPSEEK_OUTPUT_CNY_PER_M:-2}
+    volumes:
+      - repolens-data:/app/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  repolens-data:
